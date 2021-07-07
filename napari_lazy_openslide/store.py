@@ -77,8 +77,12 @@ class OpenSlideStore(Mapping):
     def __init__(self, path: str, tilesize: int = 512):
         if cucim is None:
             self._slide = OpenSlide(path)
+            self._cache = None
         else:
             self._slide = cucim.clara.CuImage(path)
+            self._cache = cucim.clara.CuImage.cache(
+                'per_process', memory_capacity=2048, record_stat=False,
+            )
         self._tilesize = tilesize
         self._store = create_meta_store(self._slide, tilesize)
 
@@ -86,6 +90,9 @@ class OpenSlideStore(Mapping):
         if key in self._store:
             # key is for metadata
             return self._store[key]
+
+        # print cache info for debugging (set record_stat=True above)
+        # print(f'cache hit: {self._cache.hit_count}, cache miss: {self._cache.miss_count}')
 
         # key should now be a path to an array chunk
         # e.g '3/4.5.0' -> '<level>/<chunk_key>'
@@ -104,7 +111,7 @@ class OpenSlideStore(Mapping):
             # is missing from the store.
             raise KeyError(key)
 
-        return np.array(tile).tobytes()
+        return np.asarray(tile).tobytes()
 
     def __contains__(self, key: str):
         return key in self._store
