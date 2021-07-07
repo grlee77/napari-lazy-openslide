@@ -5,6 +5,9 @@ from typing import Any, Dict, Mapping, MutableMapping
 import numpy as np
 try:
     import cucim
+    # Note to get frame-per-second measurements while the canvas is being drawn
+    # use the following command in the Napari console
+    #     viewer.window.qt_viewer.canvas.measure_fps()
 except ImportError:
     cucim = None
     from openslide import OpenSlide
@@ -24,12 +27,12 @@ def create_meta_store(slide, tilesize: int) -> Dict[str, bytes]:
 
     if cucim is None:
         filepath = Path(slide._filename).name
-        level_count = slide.level_count  # - 1  # omit last level
+        level_count = slide.level_count
         level_dimensions = slide.level_dimensions
         n_channels = 4
     else:
         filepath = Path(slide.path).name
-        level_count = slide.resolutions['level_count']  #  - 1  # omit last level
+        level_count = slide.resolutions['level_count']
         level_dimensions = slide.resolutions['level_dimensions']
         n_channels = 3  # RGB, not RGBA
 
@@ -44,7 +47,7 @@ def create_meta_store(slide, tilesize: int) -> Dict[str, bytes]:
     }
     init_group(store)
     init_attrs(store, root_attrs)
-    for i, (x, y) in enumerate(level_dimensions):  # [:-1]):  # omit last level
+    for i, (x, y) in enumerate(level_dimensions):
         init_array(
             store,
             path=str(i),
