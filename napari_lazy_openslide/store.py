@@ -26,10 +26,12 @@ def create_meta_store(slide, tilesize: int) -> Dict[str, bytes]:
         filepath = Path(slide._filename).name
         level_count = slide.level_count  # - 1  # omit last level
         level_dimensions = slide.level_dimensions
+        n_channels = 4
     else:
         filepath = Path(slide.path).name
         level_count = slide.resolutions['level_count']  #  - 1  # omit last level
         level_dimensions = slide.resolutions['level_dimensions']
+        n_channels = 3  # RGB, not RGBA
 
     root_attrs = {
         "multiscales": [
@@ -46,8 +48,8 @@ def create_meta_store(slide, tilesize: int) -> Dict[str, bytes]:
         init_array(
             store,
             path=str(i),
-            shape=(y, x, 4),
-            chunks=(tilesize, tilesize, 4),
+            shape=(y, x, n_channels),
+            chunks=(tilesize, tilesize, n_channels),
             dtype="|u1",
             compressor=None,
         )
