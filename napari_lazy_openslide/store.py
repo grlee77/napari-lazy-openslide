@@ -3,7 +3,11 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping
 
 import numpy as np
-from openslide import OpenSlide
+try:
+    import cucim
+except ImportError:
+    cucim = None
+    from openslide import OpenSlide
 from zarr.storage import _path_to_prefix, attrs_key, init_array, init_group
 from zarr.util import json_dumps, normalize_storage_path
 
@@ -14,21 +18,31 @@ def init_attrs(store: MutableMapping, attrs: Mapping[str, Any], path: str = None
     store[path + attrs_key] = json_dumps(attrs)
 
 
-def create_meta_store(slide: OpenSlide, tilesize: int) -> Dict[str, bytes]:
+def create_meta_store(slide, tilesize: int) -> Dict[str, bytes]:
     """Creates a dict containing the zarr metadata for the multiscale openslide image."""
     store = dict()
+
+    if cucim is None:
+        filepath = Path(slide._filename).name
+        level_count = slide.level_count  # - 1  # omit last level
+        level_dimensions = slide.level_dimensions
+    else:
+        filepath = Path(slide.path).name
+        level_count = slide.resolutions['level_count']  #  - 1  # omit last level
+        level_dimensions = slide.resolutions['level_dimensions']
+
     root_attrs = {
         "multiscales": [
             {
-                "name": Path(slide._filename).name,
-                "datasets": [{"path": str(i)} for i in range(slide.level_count)],
+                "name": filepath,
+                "datasets": [{"path": str(i)} for i in range(level_count)],
                 "version": "0.1",
             }
         ]
     }
     init_group(store)
     init_attrs(store, root_attrs)
-    for i, (x, y) in enumerate(slide.level_dimensions):
+    for i, (x, y) in enumerate(level_dimensions):  # [:-1]):  # omit last level
         init_array(
             store,
             path=str(i),
@@ -59,7 +73,10 @@ class OpenSlideStore(Mapping):
     """
 
     def __init__(self, path: str, tilesize: int = 512):
-        self._slide = OpenSlide(path)
+        if cucim is None:
+            self._slide = OpenSlide(path)
+        else:
+            self._slide = cucim.clara.CuImage(path)
         self._tilesize = tilesize
         self._store = create_meta_store(self._slide, tilesize)
 
@@ -74,7 +91,8 @@ class OpenSlideStore(Mapping):
             x, y, level = _parse_chunk_path(key)
             location = self._ref_pos(x, y, level)
             size = (self._tilesize, self._tilesize)
-            tile = self._slide.read_region(location, level, size)
+            # tile = self._slide.read_region(location, level, size)
+            tile = self._slide.read_region(location, level=level, size=size)
         except ArgumentError as err:
             # Can occur if trying to read a closed slide
             raise err
@@ -90,10 +108,16 @@ class OpenSlideStore(Mapping):
         return key in self._store
 
     def __eq__(self, other):
-        return (
-            isinstance(other, OpenSlideStore)
-            and self._slide._filename == other._slide._filename
-        )
+        if hasattr(self._slide, '_filename'):
+            return (
+                isinstance(other, OpenSlideStore)
+                and self._slide._filename == other._slide._filename
+            )
+        elif hasattr(self._slide, 'path'):
+            return (
+                isinstance(other, OpenSlideStore)
+                and self._slide.path == other._slide.path
+            )
 
     def __iter__(self):
         return iter(self.keys())
@@ -108,7 +132,10 @@ class OpenSlideStore(Mapping):
         self.close()
 
     def _ref_pos(self, x: int, y: int, level: int):
-        dsample = self._slide.level_downsamples[level]
+        if hasattr(self._slide, 'level_downsamples'):
+            dsample = self._slide.level_downsamples[level]
+        elif hasattr(self._slide, 'resolutions'):
+            dsample = self._slide.resolutions['level_downsamples'][level]
         xref = int(x * dsample * self._tilesize)
         yref = int(y * dsample * self._tilesize)
         return xref, yref
@@ -117,7 +144,8 @@ class OpenSlideStore(Mapping):
         return self._store.keys()
 
     def close(self):
-        self._slide.close()
+        if hasattr(self._slide, 'close'):
+            self._slide.close()
 
 
 if __name__ == "__main__":
